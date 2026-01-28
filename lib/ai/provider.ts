@@ -1,37 +1,69 @@
-import OpenAI from 'openai';
 import { ChatMessage, AIConfig, RequirementResult } from '@/types';
 import { SYSTEM_PROMPT, createUserPrompt } from './prompts';
 
 export class AIProvider {
-  private client: OpenAI;
   private model: string;
   private temperature: number;
 
   constructor(config: AIConfig) {
-    this.client = new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseURL,
-      dangerouslyAllowBrowser: true,
-    });
+    // Model and temp are stored for reference, but actual call goes through proxy
     this.model = config.model;
     this.temperature = config.temperature ?? 0.7;
   }
 
   async *streamChat(messages: ChatMessage[]): AsyncGenerator<string, void, unknown> {
-    const stream = await this.client.chat.completions.create({
-      model: this.model,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      })),
-      temperature: this.temperature,
-      stream: true,
+    const token = localStorage.getItem('art_token');
+
+    const response = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messages,
+        stream: true,
+      }),
     });
 
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content;
-      if (content) {
-        yield content;
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'AI 请求失败');
+    }
+
+    // Handle streaming response
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('无法读取响应');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.trim() === '') continue;
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) {
+              yield content;
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
       }
     }
   }
@@ -46,16 +78,27 @@ export class AIProvider {
       { role: 'user', content: createUserPrompt(requirement, context) },
     ];
 
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      messages: messages.map(m => ({
-        role: m.role,
-        content: m.content,
-      })),
-      temperature: this.temperature,
+    const token = localStorage.getItem('art_token');
+
+    const response = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messages,
+        stream: false,
+      }),
     });
 
-    return response.choices[0]?.message?.content ?? '';
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'AI 请求失败');
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content ?? '';
   }
 
   async *streamRequirements(
