@@ -6,7 +6,7 @@ interface ARTState {
   // Input
   requirement: string;
   context: string;
-  setRequirement: (req: string) => void;
+  setRequirement: (req: string | ((prev: string) => string)) => void;
   setContext: (ctx: string) => void;
 
   // AI Config
@@ -47,7 +47,9 @@ export const useARTStore = create<ARTState>((set) => ({
   // Input
   requirement: '',
   context: '',
-  setRequirement: (req) => set({ requirement: req }),
+  setRequirement: (req) => set((state) => ({
+    requirement: typeof req === 'function' ? (req as (prev: string) => string)(state.requirement) : req
+  })),
   setContext: (ctx) => set({ context: ctx }),
 
   // AI Config

@@ -20,6 +20,7 @@ model User {
   // Relations
   apiConfig   ApiConfig?
   userPrompt  UserPrompt?
+  agentConfig AgentConfig?
 }
 
 model ApiConfig {
@@ -45,6 +46,22 @@ model UserPrompt {
 
   // Custom system prompt
   content   String   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AgentConfig {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+
+  // Hikvision MaaS Agent settings
+  appId     String   // 应用ID
+  apiKey    String   // API密钥，加密存储
+  baseURL   String   @default("https://maas.hikvision.com.cn")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
